@@ -150,11 +150,11 @@ impl MergeInsertBuilder {
         self
     }
 
-    /// Controls whether to route the merge insert operation through the WAL host.
+    /// Controls whether to route the merge insert operation through the WAL.
     ///
-    /// When set to `true`, the operation will be sent to the WAL host instead of
-    /// the main API host. The WAL host is auto-derived from the database connection
-    /// or can be explicitly set via [`crate::connection::ConnectBuilder::wal_host_override`].
+    /// When set to `true`, the request includes an `x-use-wal: true` header,
+    /// which the router uses to forward the operation to wal-writer instances
+    /// instead of Phalanx.
     ///
     /// Defaults to `false`.
     pub fn use_wal(&mut self, use_wal: bool) -> &mut Self {

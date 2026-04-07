@@ -2723,11 +2723,11 @@ mod tests {
 
         let table = Table::new_with_handler("my_table", move |request| {
             if request.url().path() == "/v1/table/my_table/merge_insert/" {
-                // Verify the request was sent to the WAL host
+                // Verify the x-use-wal header is set for router-based WAL routing
                 assert_eq!(
-                    request.url().host_str().unwrap(),
-                    "localhost-wal",
-                    "merge_insert with use_wal should route to WAL host"
+                    request.headers().get("x-use-wal").unwrap(),
+                    "true",
+                    "merge_insert with use_wal should set x-use-wal header"
                 );
 
                 http::Response::builder()

@@ -190,7 +190,6 @@ pub struct RetryConfig {
 pub struct RestfulLanceDbClient<S: HttpSend = Sender> {
     client: reqwest::Client,
     host: String,
-    wal_host: String,
     pub(crate) retry_config: ResolvedRetryConfig,
     pub(crate) sender: S,
     pub(crate) id_delimiter: String,
@@ -201,7 +200,6 @@ impl<S: HttpSend> std::fmt::Debug for RestfulLanceDbClient<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RestfulLanceDbClient")
             .field("host", &self.host)
-            .field("wal_host", &self.wal_host)
             .field("retry_config", &self.retry_config)
             .field("sender", &self.sender)
             .field("id_delimiter", &self.id_delimiter)
@@ -287,7 +285,6 @@ impl RestfulLanceDbClient<Sender> {
         parsed_url: &ParsedDbUrl,
         region: &str,
         host_override: Option<String>,
-        wal_host_override: Option<String>,
         default_headers: HeaderMap,
         client_config: ClientConfig,
     ) -> Result<Self> {
@@ -375,16 +372,11 @@ impl RestfulLanceDbClient<Sender> {
             Some(host_override) => host_override,
             None => format!("https://{}.{}.api.lancedb.com", parsed_url.db_name, region),
         };
-        let wal_host = match wal_host_override {
-            Some(wal_host_override) => wal_host_override,
-            None => format!("https://{}.{}.wal.lancedb.com", parsed_url.db_name, region),
-        };
-        debug!("Created client for host: {}, wal_host: {}", host, wal_host);
+        debug!("Created client for host: {}", host);
         let retry_config = client_config.retry_config.clone().try_into()?;
         Ok(Self {
             client,
             host,
-            wal_host,
             retry_config,
             sender: Sender,
             id_delimiter: client_config
@@ -488,8 +480,8 @@ impl<S: HttpSend> RestfulLanceDbClient<S> {
     }
 
     pub fn post_wal(&self, uri: &str) -> RequestBuilder {
-        let full_uri = format!("{}{}", self.wal_host, uri);
-        let builder = self.client.post(full_uri);
+        let full_uri = format!("{}{}", self.host, uri);
+        let builder = self.client.post(full_uri).header("x-use-wal", "true");
         self.add_id_delimiter_query_param(builder)
     }
 
@@ -805,7 +797,6 @@ pub mod test_utils {
         RestfulLanceDbClient {
             client: reqwest::Client::new(),
             host: "http://localhost".to_string(),
-            wal_host: "http://localhost-wal".to_string(),
             retry_config: RetryConfig::default().try_into().unwrap(),
             sender: MockSender {
                 f: Arc::new(wrapper),
@@ -830,7 +821,6 @@ pub mod test_utils {
         RestfulLanceDbClient {
             client: reqwest::Client::new(),
             host: "http://localhost".to_string(),
-            wal_host: "http://localhost-wal".to_string(),
             retry_config: config.retry_config.try_into().unwrap(),
             sender: MockSender {
                 f: Arc::new(wrapper),
@@ -998,7 +988,7 @@ mod tests {
         let client = RestfulLanceDbClient {
             client: reqwest::Client::new(),
             host: "https://example.com".to_string(),
-            wal_host: "https://example.com".to_string(),
+
             retry_config: RetryConfig::default().try_into().unwrap(),
             sender: Sender,
             id_delimiter: "+".to_string(),
@@ -1034,7 +1024,7 @@ mod tests {
         let client = RestfulLanceDbClient {
             client: reqwest::Client::new(),
             host: "https://example.com".to_string(),
-            wal_host: "https://example.com".to_string(),
+
             retry_config: RetryConfig::default().try_into().unwrap(),
             sender: Sender,
             id_delimiter: "+".to_string(),
@@ -1072,7 +1062,7 @@ mod tests {
         let client = RestfulLanceDbClient {
             client: reqwest::Client::new(),
             host: "https://example.com".to_string(),
-            wal_host: "https://example.com".to_string(),
+
             retry_config: RetryConfig::default().try_into().unwrap(),
             sender: Sender,
             id_delimiter: "+".to_string(),
