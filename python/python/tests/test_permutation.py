@@ -3,6 +3,7 @@
 
 import pyarrow as pa
 import math
+import pickle
 import pytest
 
 from lancedb import DBConnection, Table, connect
@@ -562,22 +563,6 @@ def some_permutation(some_table: Table, some_perm_table: Table) -> Permutation:
     return Permutation.from_tables(some_table, some_perm_table)
 
 
-def assert_reopen_metadata(
-    permutation: Permutation,
-    *,
-    base_table: Table,
-    permutation_table: Table | None,
-    split: int,
-    offset: int | None = None,
-    limit: int | None = None,
-):
-    assert permutation._base_table is base_table
-    assert permutation._permutation_table is permutation_table
-    assert permutation._split == split
-    assert permutation._offset == offset
-    assert permutation._limit == limit
-
-
 def test_num_rows(some_permutation: Permutation):
     assert some_permutation.num_rows == 950
 
@@ -615,91 +600,88 @@ def test_limit_offset(some_permutation: Permutation):
         some_permutation.with_skip(500).with_take(500).num_rows
 
 
-def test_reopen_metadata_identity(mem_db: DBConnection):
+
+def test_permutation_pickle_rejects_in_memory_tables(mem_db: DBConnection):
     table = mem_db.create_table("identity_table", pa.table({"id": range(10)}))
     permutation = Permutation.identity(table)
 
-    assert_reopen_metadata(
-        permutation,
-        base_table=table,
-        permutation_table=None,
-        split=0,
+    with pytest.raises(
+        pickle.PicklingError,
+        match="in-memory databases",
+    ):
+        pickle.dumps(permutation)
+
+
+def test_identity_permutation_pickle_roundtrip_preserves_table_version(tmp_path):
+    db = connect(tmp_path)
+    table = db.create_table(
+        "identity_table",
+        pa.table({"id": range(10), "value": range(10)}),
+    )
+    permutation = (
+        Permutation.identity(table)
+        .with_skip(2)
+        .with_take(3)
+        .with_format("python_col")
     )
 
+    payload = pickle.dumps(permutation)
+    table.add(pa.table({"id": [10], "value": [10]}))
 
-def test_reopen_metadata_split_name_resolution(
-    some_table: Table, some_perm_table: Table
-):
-    permutation = Permutation.from_tables(some_table, some_perm_table, "test")
+    restored = pickle.loads(payload)
+    assert restored.num_rows == 3
+    batches = list(restored.iter(10, skip_last_batch=False))
+    assert batches == [{"id": [2, 3, 4], "value": [2, 3, 4]}]
 
-    assert permutation.num_rows == 50
-    assert_reopen_metadata(
-        permutation,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=1,
+
+def test_permutation_pickle_roundtrip_with_persisted_permutation_table(tmp_path):
+    db = connect(tmp_path)
+    table = db.create_table(
+        "base_table",
+        pa.table({"id": range(1000), "value": range(1000)}),
     )
-
-
-def test_reopen_metadata_propagates_through_derived_permutations(
-    some_permutation: Permutation, some_table: Table, some_perm_table: Table
-):
-    derived = (
-        some_permutation.select_columns(["id"])
+    permutation_table = (
+        permutation_builder(table)
+        .split_random(ratios=[0.95, 0.05], seed=42, split_names=["train", "test"])
+        .shuffle(seed=42)
+        .persist(db, "persisted_permutation")
+        .execute()
+    )
+    permutation = (
+        Permutation.from_tables(table, permutation_table, "test")
+        .select_columns(["id"])
         .rename_column("id", "row_id")
         .with_batch_size(32)
+        .with_skip(5)
+        .with_take(10)
         .with_format("arrow")
     )
 
-    assert_reopen_metadata(
-        derived,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=0,
-    )
+    restored = pickle.loads(pickle.dumps(permutation))
+
+    assert restored.batch_size == 32
+    assert restored.column_names == ["row_id"]
+    assert restored.num_rows == 10
+    assert restored.__getitems__([0, 1, 2]).to_pylist() == permutation.__getitems__(
+        [0, 1, 2]
+    ).to_pylist()
 
 
-def test_reopen_metadata_tracks_skip_and_take(
-    some_permutation: Permutation, some_table: Table, some_perm_table: Table
-):
-    skipped = some_permutation.with_skip(100)
-    assert_reopen_metadata(
-        skipped,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=0,
-        offset=100,
-    )
+def test_permutation_pickle_roundtrip_preserves_builtin_polars_format(tmp_path):
+    pl = pytest.importorskip("polars")
 
-    limited = skipped.with_take(200)
-    assert_reopen_metadata(
-        limited,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=0,
-        offset=100,
-        limit=200,
+    db = connect(tmp_path)
+    table = db.create_table(
+        "polars_table",
+        pa.table({"id": range(5), "value": range(5)}),
     )
+    permutation = Permutation.identity(table).with_take(2).with_format("polars")
 
-    reskipped = limited.with_skip(25)
-    assert_reopen_metadata(
-        reskipped,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=0,
-        offset=25,
-        limit=200,
-    )
+    restored = pickle.loads(pickle.dumps(permutation))
+    batch = restored.__getitems__([0, 1])
 
-    retaken = limited.with_take(50)
-    assert_reopen_metadata(
-        retaken,
-        base_table=some_table,
-        permutation_table=some_perm_table,
-        split=0,
-        offset=100,
-        limit=50,
-    )
+    assert isinstance(batch, pl.DataFrame)
+    assert batch.to_dict(as_series=False) == {"id": [0, 1], "value": [0, 1]}
 
 
 def test_remove_columns(some_permutation: Permutation):

@@ -1,19 +1,96 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
+import json
+import pickle
+from datetime import timedelta
+from typing import Any, Callable, Iterator, Literal, Optional, TYPE_CHECKING, Union
+
+import pyarrow as pa
 from deprecation import deprecated
 from lancedb import AsyncConnection, DBConnection
-import pyarrow as pa
-import json
 
 from ._lancedb import async_permutation_builder, PermutationReader
-from .table import LanceTable
 from .background_loop import LOOP
+from .table import LanceTable
 from .util import batch_to_tensor, batch_to_tensor_rows
-from typing import Any, Callable, Iterator, Literal, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from lancedb.dependencies import pandas as pd, numpy as np, polars as pl
+
+
+def _builtin_transform(format: str) -> Callable[[pa.RecordBatch], Any]:
+    if format == "python":
+        return Transforms.arrow2python
+    if format == "python_col":
+        return Transforms.arrow2pythoncol
+    if format == "numpy":
+        return Transforms.arrow2numpy
+    if format == "pandas":
+        return Transforms.arrow2pandas
+    if format == "arrow":
+        return Transforms.arrow2arrow
+    if format == "torch":
+        return batch_to_tensor_rows
+    if format == "torch_col":
+        return batch_to_tensor
+    if format == "polars":
+        return Transforms.arrow2polars()
+    raise ValueError(f"Invalid format: {format}")
+
+
+def _table_to_state(
+    table: Union[LanceTable, dict[str, Any]],
+) -> dict[str, Any]:
+    if isinstance(table, dict):
+        return table
+    if not isinstance(table, LanceTable):
+        raise pickle.PicklingError(
+            "Permutation pickling only supports LanceTable-backed permutations"
+        )
+    if table._namespace_client is not None:
+        raise pickle.PicklingError(
+            "Permutation pickling does not yet support namespace-backed tables"
+        )
+    if table._conn.uri.startswith("memory://"):
+        raise pickle.PicklingError(
+            "Permutation pickling does not support in-memory databases"
+        )
+
+    try:
+        read_consistency_interval = table._conn.read_consistency_interval
+    except Exception:
+        read_consistency_interval = None
+    return {
+        "uri": table._conn.uri,
+        "name": table.name,
+        "version": table.version,
+        "storage_options": table.initial_storage_options(),
+        "read_consistency_interval_secs": (
+            read_consistency_interval.total_seconds()
+            if read_consistency_interval is not None
+            else None
+        ),
+        "namespace_path": list(table.namespace),
+    }
+
+
+def _table_from_state(state: dict[str, Any]) -> LanceTable:
+    from . import connect
+
+    read_consistency_interval = (
+        timedelta(seconds=state["read_consistency_interval_secs"])
+        if state["read_consistency_interval_secs"] is not None
+        else None
+    )
+    db = connect(
+        state["uri"],
+        read_consistency_interval=read_consistency_interval,
+        storage_options=state["storage_options"],
+    )
+    table = db.open_table(state["name"], namespace_path=state["namespace_path"])
+    table.checkout(state["version"])
+    return table
 
 
 class PermutationBuilder:
@@ -386,11 +463,12 @@ class Permutation:
         batch_size: int,
         transform_fn: Callable[pa.RecordBatch, Any],
         *,
-        base_table: LanceTable,
-        permutation_table: Optional[LanceTable],
+        base_table: Union[LanceTable, dict[str, Any]],
+        permutation_table: Optional[Union[LanceTable, dict[str, Any]]],
         split: int,
         offset: Optional[int] = None,
         limit: Optional[int] = None,
+        transform_spec: Optional[str] = None,
     ):
         """
         Internal constructor.  Use [from_tables](#from_tables) instead.
@@ -401,6 +479,7 @@ class Permutation:
         self.selection = selection
         self.transform_fn = transform_fn
         self.batch_size = batch_size
+        self._transform_spec = transform_spec
         # These fields are used to reconstruct the permutation in a new process.
         self._base_table = base_table
         self._permutation_table = permutation_table
@@ -415,7 +494,78 @@ class Permutation:
             "split": self._split,
             "offset": self._offset,
             "limit": self._limit,
+            "transform_spec": self._transform_spec,
         }
+
+    def __getstate__(self) -> dict[str, Any]:
+        if self._transform_spec is not None:
+            transform_state = {
+                "kind": "builtin",
+                "format": self._transform_spec,
+            }
+        else:
+            transform_state = {
+                "kind": "callable",
+                "transform_fn": self.transform_fn,
+            }
+
+        return {
+            "selection": self.selection,
+            "batch_size": self.batch_size,
+            "transform": transform_state,
+            "reopen": {
+                **self._reopen_metadata(),
+                # Store reopen state instead of live LanceTable handles.
+                "base_table": _table_to_state(self._base_table),
+                "permutation_table": (
+                    _table_to_state(self._permutation_table)
+                    if self._permutation_table is not None
+                    else None
+                ),
+            },
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        reopen = state["reopen"]
+        base_table = _table_from_state(reopen["base_table"])
+        permutation_table_state = reopen["permutation_table"]
+        permutation_table = (
+            _table_from_state(permutation_table_state)
+            if permutation_table_state is not None
+            else None
+        )
+        split = reopen["split"]
+        offset = reopen["offset"]
+        limit = reopen["limit"]
+
+        async def do_reopen():
+            reader = await PermutationReader.from_tables(
+                base_table, permutation_table, split
+            )
+            if offset is not None:
+                reader = await reader.with_offset(offset)
+            if limit is not None:
+                reader = await reader.with_limit(limit)
+            return reader
+
+        transform = state["transform"]
+        if transform["kind"] == "builtin":
+            transform_spec = transform["format"]
+            transform_fn = _builtin_transform(transform_spec)
+        else:
+            transform_spec = None
+            transform_fn = transform["transform_fn"]
+
+        self.reader = LOOP.run(do_reopen())
+        self.selection = state["selection"]
+        self.batch_size = state["batch_size"]
+        self.transform_fn = transform_fn
+        self._transform_spec = transform_spec
+        self._base_table = reopen["base_table"]
+        self._permutation_table = permutation_table_state
+        self._split = split
+        self._offset = offset
+        self._limit = limit
 
     def _with_selection(self, selection: dict[str, str]) -> "Permutation":
         """
@@ -537,6 +687,7 @@ class Permutation:
                 base_table=base_table,
                 permutation_table=permutation_table,
                 split=split,
+                transform_spec="python",
             )
 
         return LOOP.run(do_from_tables())
@@ -777,24 +928,16 @@ class Permutation:
         this method.
         """
         assert format is not None, "format is required"
-        if format == "python":
-            return self.with_transform(Transforms.arrow2python)
-        if format == "python_col":
-            return self.with_transform(Transforms.arrow2pythoncol)
-        elif format == "numpy":
-            return self.with_transform(Transforms.arrow2numpy)
-        elif format == "pandas":
-            return self.with_transform(Transforms.arrow2pandas)
-        elif format == "arrow":
-            return self.with_transform(Transforms.arrow2arrow)
-        elif format == "torch":
-            return self.with_transform(batch_to_tensor_rows)
-        elif format == "torch_col":
-            return self.with_transform(batch_to_tensor)
-        elif format == "polars":
-            return self.with_transform(Transforms.arrow2polars())
-        else:
-            raise ValueError(f"Invalid format: {format}")
+        return Permutation(
+            self.reader,
+            self.selection,
+            self.batch_size,
+            _builtin_transform(format),
+            **{
+                **self._reopen_metadata(),
+                "transform_spec": format,
+            },
+        )
 
     def with_transform(self, transform: Callable[pa.RecordBatch, Any]) -> "Permutation":
         """
@@ -812,7 +955,10 @@ class Permutation:
             self.selection,
             self.batch_size,
             transform,
-            **self._reopen_metadata(),
+            **{
+                **self._reopen_metadata(),
+                "transform_spec": None,
+            },
         )
 
     def __getitem__(self, index: int) -> Any:
@@ -856,11 +1002,10 @@ class Permutation:
                 self.selection,
                 self.batch_size,
                 self.transform_fn,
-                base_table=self._base_table,
-                permutation_table=self._permutation_table,
-                split=self._split,
-                offset=skip,
-                limit=self._limit,
+                **{
+                    **self._reopen_metadata(),
+                    "offset": skip,
+                },
             )
 
         return LOOP.run(do_with_skip())
@@ -889,11 +1034,10 @@ class Permutation:
                 self.selection,
                 self.batch_size,
                 self.transform_fn,
-                base_table=self._base_table,
-                permutation_table=self._permutation_table,
-                split=self._split,
-                offset=self._offset,
-                limit=limit,
+                **{
+                    **self._reopen_metadata(),
+                    "limit": limit,
+                },
             )
 
         return LOOP.run(do_with_take())
