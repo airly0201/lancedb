@@ -562,6 +562,22 @@ def some_permutation(some_table: Table, some_perm_table: Table) -> Permutation:
     return Permutation.from_tables(some_table, some_perm_table)
 
 
+def assert_reopen_metadata(
+    permutation: Permutation,
+    *,
+    base_table: Table,
+    permutation_table: Table | None,
+    split: int,
+    offset: int | None = None,
+    limit: int | None = None,
+):
+    assert permutation._base_table is base_table
+    assert permutation._permutation_table is permutation_table
+    assert permutation._split == split
+    assert permutation._offset == offset
+    assert permutation._limit == limit
+
+
 def test_num_rows(some_permutation: Permutation):
     assert some_permutation.num_rows == 950
 
@@ -597,6 +613,93 @@ def test_limit_offset(some_permutation: Permutation):
         some_permutation.with_take(500).with_skip(500).num_rows
     with pytest.raises(Exception):
         some_permutation.with_skip(500).with_take(500).num_rows
+
+
+def test_reopen_metadata_identity(mem_db: DBConnection):
+    table = mem_db.create_table("identity_table", pa.table({"id": range(10)}))
+    permutation = Permutation.identity(table)
+
+    assert_reopen_metadata(
+        permutation,
+        base_table=table,
+        permutation_table=None,
+        split=0,
+    )
+
+
+def test_reopen_metadata_split_name_resolution(
+    some_table: Table, some_perm_table: Table
+):
+    permutation = Permutation.from_tables(some_table, some_perm_table, "test")
+
+    assert permutation.num_rows == 50
+    assert_reopen_metadata(
+        permutation,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=1,
+    )
+
+
+def test_reopen_metadata_propagates_through_derived_permutations(
+    some_permutation: Permutation, some_table: Table, some_perm_table: Table
+):
+    derived = (
+        some_permutation.select_columns(["id"])
+        .rename_column("id", "row_id")
+        .with_batch_size(32)
+        .with_format("arrow")
+    )
+
+    assert_reopen_metadata(
+        derived,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=0,
+    )
+
+
+def test_reopen_metadata_tracks_skip_and_take(
+    some_permutation: Permutation, some_table: Table, some_perm_table: Table
+):
+    skipped = some_permutation.with_skip(100)
+    assert_reopen_metadata(
+        skipped,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=0,
+        offset=100,
+    )
+
+    limited = skipped.with_take(200)
+    assert_reopen_metadata(
+        limited,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=0,
+        offset=100,
+        limit=200,
+    )
+
+    reskipped = limited.with_skip(25)
+    assert_reopen_metadata(
+        reskipped,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=0,
+        offset=25,
+        limit=200,
+    )
+
+    retaken = limited.with_take(50)
+    assert_reopen_metadata(
+        retaken,
+        base_table=some_table,
+        permutation_table=some_perm_table,
+        split=0,
+        offset=100,
+        limit=50,
+    )
 
 
 def test_remove_columns(some_permutation: Permutation):

@@ -385,6 +385,12 @@ class Permutation:
         selection: dict[str, str],
         batch_size: int,
         transform_fn: Callable[pa.RecordBatch, Any],
+        *,
+        base_table: LanceTable,
+        permutation_table: Optional[LanceTable],
+        split: int,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
     ):
         """
         Internal constructor.  Use [from_tables](#from_tables) instead.
@@ -395,6 +401,21 @@ class Permutation:
         self.selection = selection
         self.transform_fn = transform_fn
         self.batch_size = batch_size
+        # These fields are used to reconstruct the permutation in a new process.
+        self._base_table = base_table
+        self._permutation_table = permutation_table
+        self._split = split
+        self._offset = offset
+        self._limit = limit
+
+    def _reopen_metadata(self) -> dict[str, Any]:
+        return {
+            "base_table": self._base_table,
+            "permutation_table": self._permutation_table,
+            "split": self._split,
+            "offset": self._offset,
+            "limit": self._limit,
+        }
 
     def _with_selection(self, selection: dict[str, str]) -> "Permutation":
         """
@@ -403,7 +424,13 @@ class Permutation:
         Does not validation of the selection and it replaces it entirely.  This is not
         intended for public use.
         """
-        return Permutation(self.reader, selection, self.batch_size, self.transform_fn)
+        return Permutation(
+            self.reader,
+            selection,
+            self.batch_size,
+            self.transform_fn,
+            **self._reopen_metadata(),
+        )
 
     def _with_reader(self, reader: PermutationReader) -> "Permutation":
         """
@@ -411,13 +438,25 @@ class Permutation:
 
         This is an internal method and should not be used directly.
         """
-        return Permutation(reader, self.selection, self.batch_size, self.transform_fn)
+        return Permutation(
+            reader,
+            self.selection,
+            self.batch_size,
+            self.transform_fn,
+            **self._reopen_metadata(),
+        )
 
     def with_batch_size(self, batch_size: int) -> "Permutation":
         """
         Creates a new permutation with the given batch size
         """
-        return Permutation(self.reader, self.selection, batch_size, self.transform_fn)
+        return Permutation(
+            self.reader,
+            self.selection,
+            batch_size,
+            self.transform_fn,
+            **self._reopen_metadata(),
+        )
 
     @classmethod
     def identity(cls, table: LanceTable) -> "Permutation":
@@ -491,7 +530,13 @@ class Permutation:
             schema = await reader.output_schema(None)
             initial_selection = {name: name for name in schema.names}
             return cls(
-                reader, initial_selection, DEFAULT_BATCH_SIZE, Transforms.arrow2python
+                reader,
+                initial_selection,
+                DEFAULT_BATCH_SIZE,
+                Transforms.arrow2python,
+                base_table=base_table,
+                permutation_table=permutation_table,
+                split=split,
             )
 
         return LOOP.run(do_from_tables())
@@ -762,7 +807,13 @@ class Permutation:
         for expensive operations such as image decoding.
         """
         assert transform is not None, "transform is required"
-        return Permutation(self.reader, self.selection, self.batch_size, transform)
+        return Permutation(
+            self.reader,
+            self.selection,
+            self.batch_size,
+            transform,
+            **self._reopen_metadata(),
+        )
 
     def __getitem__(self, index: int) -> Any:
         """
@@ -800,7 +851,17 @@ class Permutation:
 
         async def do_with_skip():
             reader = await self.reader.with_offset(skip)
-            return self._with_reader(reader)
+            return Permutation(
+                reader,
+                self.selection,
+                self.batch_size,
+                self.transform_fn,
+                base_table=self._base_table,
+                permutation_table=self._permutation_table,
+                split=self._split,
+                offset=skip,
+                limit=self._limit,
+            )
 
         return LOOP.run(do_with_skip())
 
@@ -823,7 +884,17 @@ class Permutation:
 
         async def do_with_take():
             reader = await self.reader.with_limit(limit)
-            return self._with_reader(reader)
+            return Permutation(
+                reader,
+                self.selection,
+                self.batch_size,
+                self.transform_fn,
+                base_table=self._base_table,
+                permutation_table=self._permutation_table,
+                split=self._split,
+                offset=self._offset,
+                limit=limit,
+            )
 
         return LOOP.run(do_with_take())
 
