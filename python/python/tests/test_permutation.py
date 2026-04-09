@@ -600,7 +600,6 @@ def test_limit_offset(some_permutation: Permutation):
         some_permutation.with_skip(500).with_take(500).num_rows
 
 
-
 def test_permutation_pickle_rejects_in_memory_tables(mem_db: DBConnection):
     table = mem_db.create_table("identity_table", pa.table({"id": range(10)}))
     permutation = Permutation.identity(table)
@@ -619,10 +618,7 @@ def test_identity_permutation_pickle_roundtrip_preserves_table_version(tmp_path)
         pa.table({"id": range(10), "value": range(10)}),
     )
     permutation = (
-        Permutation.identity(table)
-        .with_skip(2)
-        .with_take(3)
-        .with_format("python_col")
+        Permutation.identity(table).with_skip(2).with_take(3).with_format("python_col")
     )
 
     payload = pickle.dumps(permutation)
@@ -662,9 +658,10 @@ def test_permutation_pickle_roundtrip_with_persisted_permutation_table(tmp_path)
     assert restored.batch_size == 32
     assert restored.column_names == ["row_id"]
     assert restored.num_rows == 10
-    assert restored.__getitems__([0, 1, 2]).to_pylist() == permutation.__getitems__(
-        [0, 1, 2]
-    ).to_pylist()
+    assert (
+        restored.__getitems__([0, 1, 2]).to_pylist()
+        == permutation.__getitems__([0, 1, 2]).to_pylist()
+    )
 
 
 def test_permutation_pickle_roundtrip_preserves_builtin_polars_format(tmp_path):
