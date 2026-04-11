@@ -40,11 +40,17 @@ jobs:
           cd nodejs
           cargo build --release --target aarch64-linux-android 2>&1 | tail -100
 
+      - name: List build output
+        run: |
+          find . -name "*.so" -type f 2>/dev/null
+          ls -la nodejs/target/aarch64-linux-android/release/ 2>/dev/null || echo "No release dir"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: lancedb-android-aarch64
           path: |
-            nodejs/target/aarch64-linux-android/release/*.so
+            nodejs/target/aarch64-linux-android/release/deps/*.so
+            nodejs/target/aarch64-linux-android/release/lancedb*.so
           retention-days: 7
