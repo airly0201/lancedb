@@ -23,23 +23,25 @@ jobs:
           toolchain: ${{ steps.rust-version.outputs.version }}
           targets: aarch64-linux-android
 
-      - name: Set up Android NDK
-        uses: android/ndk-setters@main
+      - name: Setup Android SDK
+        uses: peaceiris/actions-install-android@v3
         with:
-          ndk-version: r25b
+          android_ndk_version: r25b
 
       - name: Show NDK paths
         run: |
           echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
-          echo "NDK path: ${{ steps.setup-ndk.outputs.ndk-path }}"
-          ls -la $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep aarch64 | head -10
+          ls -la $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ 2>/dev/null | grep aarch64 | head -10
 
       - name: Configure Cargo for Android
         run: |
           mkdir -p ~/.cargo
+          # 查找正确的 clang 工具
+          CLANG_PATH=$(ls $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android*-clang 2>/dev/null | head -1)
+          echo "Using clang: $CLANG_PATH"
           cat >> ~/.cargo/config.toml << CARGO_EOF
           [target.aarch64-linux-android]
-          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang"
+          linker = "$CLANG_PATH"
           ar = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           CARGO_EOF
 
