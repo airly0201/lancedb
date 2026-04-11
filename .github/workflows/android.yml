@@ -29,32 +29,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Find available NDK
-        run: |
-          echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
-          ls -la $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep aarch64 | head -10
-
-      - name: Configure Cargo for Android
-        run: |
-          mkdir -p ~/.cargo
-          # 使用 aarch64-linux-android25-clang (基于上面找到的实际工具)
-          cat >> ~/.cargo/config.toml << CARGO_EOF
-          [target.aarch64-linux-android]
-          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang"
-          ar = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-          CARGO_EOF
-          echo "Cargo config:"
-          cat ~/.cargo/config.toml
-
       - name: Build nodejs bindings
+        env:
+          # 直接通过环境变量传递 linker 配置
+          CC_aarch64_linux_android: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang
+          AR_aarch64_linux_android: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_AR: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
         run: |
           cd nodejs
           cargo build --release --target aarch64-linux-android 2>&1 | tail -100
 
       - name: List build output
         run: |
+          cd nodejs
           find . -name "*.so" -type f 2>/dev/null
-          ls -la nodejs/target/aarch64-linux-android/release/ 2>/dev/null || echo "No release dir"
+          ls -la target/aarch64-linux-android/release/ 2>/dev/null || echo "No release dir"
+          ls -la target/aarch64-linux-android/release/deps/ 2>/dev/null || echo "No deps dir"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
