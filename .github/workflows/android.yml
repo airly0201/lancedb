@@ -23,10 +23,20 @@ jobs:
           toolchain: ${{ steps.rust-version.outputs.version }}
           targets: aarch64-linux-android
 
-      - name: Setup Android SDK
-        uses: peaceiris/actions-install-android@v3
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          android_ndk_version: r25b
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android NDK
+        run: |
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip
+          unzip -q /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+          mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653"
 
       - name: Show NDK paths
         run: |
