@@ -10,9 +10,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Read Rust version
+        id: rust-version
+        run: |
+          VERSION=$(cat rust-toolchain.toml | grep "channel" | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Rust version: $VERSION"
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
           targets: aarch64-linux-android
 
       - name: Set up JDK
