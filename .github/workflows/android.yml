@@ -29,31 +29,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android NDK
-        run: |
-          mkdir -p $ANDROID_HOME/cmdline-tools
-          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip
-          unzip -q /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
-          mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653"
-
-      - name: Show NDK paths
+      - name: Find available NDK
         run: |
           echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
-          ls -la $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ 2>/dev/null | grep aarch64 | head -10
+          ls -la $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep aarch64 | head -10
 
       - name: Configure Cargo for Android
         run: |
           mkdir -p ~/.cargo
-          # 查找正确的 clang 工具
-          CLANG_PATH=$(ls $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android*-clang 2>/dev/null | head -1)
-          echo "Using clang: $CLANG_PATH"
+          # 使用 aarch64-linux-android25-clang (基于上面找到的实际工具)
           cat >> ~/.cargo/config.toml << CARGO_EOF
           [target.aarch64-linux-android]
-          linker = "$CLANG_PATH"
+          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang"
           ar = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           CARGO_EOF
+          echo "Cargo config:"
+          cat ~/.cargo/config.toml
 
       - name: Build nodejs bindings
         run: |
@@ -73,4 +64,5 @@ jobs:
           path: |
             nodejs/target/aarch64-linux-android/release/deps/*.so
             nodejs/target/aarch64-linux-android/release/lancedb*.so
+            nodejs/target/aarch64-linux-android/release/*.so
           retention-days: 7
