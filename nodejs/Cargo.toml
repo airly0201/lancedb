@@ -38,8 +38,7 @@ aws-lc-rs = "=1.16.1"
 napi-build = "2.3.1"
 
 [features]
-default = ["remote"]
-# 禁用云存储支持来大幅减少编译时间
-# "lancedb/aws", "lancedb/gcs", "lancedb/azure", "lancedb/dynamodb", "lancedb/oss", "lancedb/huggingface"
-fp16kernels = ["lancedb/fp16kernels"]
-remote = ["lancedb/remote"]
+# 只保留最基础的向量存储功能
+default = []
+# fp16kernels = ["lancedb/fp16kernels"]
+# remote = ["lancedb/remote"]
