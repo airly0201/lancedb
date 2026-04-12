@@ -62,8 +62,14 @@ jobs:
       - name: List build output
         run: |
           cd nodejs
+          echo "=== Find all .so files ==="
           find . -name "*.so" -type f 2>/dev/null
+          echo "=== Find all .a files ==="
+          find . -name "*.a" -type f 2>/dev/null | head -20
+          echo "=== List release dir ==="
           ls -la target/aarch64-linux-android/release/ 2>/dev/null || echo "No release dir"
+          echo "=== List target dir structure ==="
+          ls -la target/ 2>/dev/null || echo "No target dir"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
