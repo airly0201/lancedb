@@ -77,8 +77,6 @@ jobs:
         with:
           name: lancedb-android-aarch64
           path: |
-            nodejs/target/**/release/deps/*.so
-            nodejs/target/**/release/lancedb*.so
-            nodejs/target/**/release/liblancedb*.so
-            nodejs/target/**/release/*.so
+            nodejs/cargo_build.log
+            nodejs/target/aarch64-linux-android/release/
           retention-days: 7
