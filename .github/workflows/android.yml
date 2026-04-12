@@ -28,6 +28,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install Android NDK
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" 2>/dev/null || true
+          # 创建通用 clang 名称的符号链接（aws-lc-sys 需要）
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          ln -sf "$NDK_BIN/aarch64-linux-android21-clang" "$NDK_BIN/aarch64-linux-android-clang"
+          ln -sf "$NDK_BIN/aarch64-linux-android21-clang++" "$NDK_BIN/aarch64-linux-android-clang++"
+          ls -la "$NDK_BIN"/aarch64-linux-android*-clang*
+
       - name: Install protoc
         run: |
           mkdir -p ${{ github.workspace }}/protoc
