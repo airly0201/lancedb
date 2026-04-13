@@ -20,7 +20,7 @@ half.workspace = true
 arrow-schema.workspace = true
 env_logger.workspace = true
 futures.workspace = true
-lancedb = { path = "../rust/lancedb", default-features = false }
+lancedb = { path = "../rust/lancedb", default-features = false, features = ["remote"] }
 napi = { version = "3.8.3", default-features = false, features = [
     "napi9",
     "async"
