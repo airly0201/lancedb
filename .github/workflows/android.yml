@@ -1,6 +1,7 @@
 name: Build Android (aarch64-linux-android)
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 jobs:
