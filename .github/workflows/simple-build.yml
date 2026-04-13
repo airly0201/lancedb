@@ -1,0 +1,21 @@
+name: Simple Android Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/simple-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hello
+        run: echo "Hello World"
+      - name: Check workspace
+        run: |
+          echo "Workspace: ${{ github.workspace }}"
+          ls -la
