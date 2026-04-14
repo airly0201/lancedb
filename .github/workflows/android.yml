@@ -1,10 +1,10 @@
-name: Build Android (Minimal)
+name: Build Android Only
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,13 +17,20 @@ jobs:
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          
+      - name: Add Android target
+        run: rustup target add aarch64-linux-android
       
       - name: Build Android
+        env:
+          PROTOC_NO_VENDOR: 1
         run: |
           cd nodejs
-          cargo build --release --target aarch64-linux-android --features remote
+          cargo build --release --target aarch64-linux-android --features remote 2>&1
       
-      - name: Upload Artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lancedb-android
