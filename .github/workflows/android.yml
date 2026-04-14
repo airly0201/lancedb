@@ -23,6 +23,11 @@ jobs:
           toolchain: ${{ steps.rust-version.outputs.version }}
           targets: aarch64-linux-android
 
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y build-essential
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
