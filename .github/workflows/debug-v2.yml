@@ -1,0 +1,68 @@
+name: Build Android (v2 - Debug)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/debug-v2.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Read Rust version
+        run: |
+          VERSION=$(cat rust-toolchain.toml | grep "channel" | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust.outputs.version }}
+          targets: aarch64-linux-android
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      
+      - name: Install protoc
+        run: |
+          mkdir -p ${{ github.workspace }}/protoc
+          curl -sLO https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip
+          unzip -o protoc-25.1-linux-x86_64.zip -d ${{ github.workspace }}/protoc
+          rm protoc-25.1-linux-x86_64.zip
+      
+      - name: Build with remote feature
+        env:
+          CC_aarch64_linux_android: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang
+          AR_aarch64_linux_android: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_AR: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          PROTOC: ${{ github.workspace }}/protoc/bin/protoc
+        run: |
+          cd nodejs
+          cargo build --release --target aarch64-linux-android --features remote 2>&1 | tee build.log
+          echo "=== Release directory ==="
+          ls -la nodejs/target/aarch64-linux-android/release/
+          echo "=== Find lancedb files ==="
+          find nodejs/target/aarch64-linux-android -name "lancedb*" -type f 2>/dev/null | head -20
+      
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: nodejs/build.log
+          retention-days: 7
+      
+      - name: Upload all release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: lancedb-android-debug
+          path: nodejs/target/aarch64-linux-android/release/
+          retention-days: 7
