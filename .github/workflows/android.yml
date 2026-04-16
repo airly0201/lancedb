@@ -28,10 +28,14 @@ jobs:
       - name: Build Android
         run: |
           cd nodejs
-          cargo build --release --target aarch64-linux-android 2>&1 | tail -50
+          cargo build --release --target aarch64-linux-android 2>&1
+          echo "=== Checking target dir ==="
+          find target -type f -name "*.so" 2>/dev/null
+          find target -type f -name "*.a" 2>/dev/null
+          ls -la target/aarch64-linux-android/release/ 2>/dev/null || echo "No release dir"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lancedb-android
-          path: nodejs/target/aarch64-linux-android/release/
+          path: nodejs/target/
