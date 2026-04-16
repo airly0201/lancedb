@@ -26,15 +26,22 @@ jobs:
         with:
           toolchain: 1.94.0
           
-      - name: Add Android target #v2
+      - name: Add Android target
         run: rustup target add aarch64-linux-android
       
+      - name: Install Android NDK
+        uses: nickswag/install-ndk-action@latest
+        with:
+          ndk-version: r27b
+          
       - name: Build Android
         env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           PROTOC_NO_VENDOR: 1
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: |
           cd nodejs
-          cargo build --release --target aarch64-linux-android --features remote 2>&1
+          cargo build --release --target aarch64-linux-android --features remote 2>&1 | tee build.log
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
