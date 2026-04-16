@@ -3,10 +3,6 @@ name: Build Android Only
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/android.yml'
-      - 'nodejs/**'
-      - 'rust/**'
   workflow_dispatch:
 
 jobs:
@@ -29,10 +25,10 @@ jobs:
       - name: Add Android target
         run: rustup target add aarch64-linux-android
       
-      - name: Build Android (no remote feature)
+      - name: Build Android
         run: |
           cd nodejs
-          cargo build --release --target aarch64-linux-android 2>&1
+          cargo build --release --target aarch64-linux-android 2>&1 | tail -50
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
