@@ -32,10 +32,13 @@ jobs:
       - name: Build Android
         run: |
           cd nodejs
-          cargo build --release --target aarch64-linux-android --features remote 2>&1 | head -100
+          cargo build --release --target aarch64-linux-android --features remote 2>&1
+          ls -la target/aarch64-linux-android/release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lancedb-android
-          path: nodejs/target/aarch64-linux-android/release/
+          path: |
+            nodejs/target/aarch64-linux-android/release/
+            nodejs/target/aarch64-linux-android/release/deps/
