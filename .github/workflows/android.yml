@@ -21,25 +21,42 @@ jobs:
           distribution: temurin
           java-version: '17'
       
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.0
           
       - name: Add Android target
-        run: |
-          rustup target add aarch64-linux-android
-          
-      - name: Build Android
-        env:
-          PROTOC_NO_VENDOR: 1
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
-        run: |
-          cd nodejs
-          cargo build --release --target aarch64-linux-android --features remote 2>&1
+        run: rustup target add aarch64-linux-android
       
+      - name: Install Android NDK
+        run: |
+          mkdir -p $ANDROID_HOME/ndk
+          curl -sL https://dl.google.com/android/repository/android-ndk-r27b-linux.zip -o ndk.zip
+          unzip -q ndk.zip -d $ANDROID_HOME/ndk
+          mv $ANDROID_HOME/ndk/android-ndk-r27b $ANDROID_HOME/ndk/27b
+          rm ndk.zip
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Android
+        run: |
+          export ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/27b
+          export PATH=$PATH:$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+          cd nodejs
+          npm ci
+          npx napi build --platform --release --target aarch64-linux-android -n lancedb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lancedb-android
-          path: nodejs/target/aarch64-linux-android/release/
+          path: nodejs/lancedb/
